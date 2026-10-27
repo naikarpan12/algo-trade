@@ -15,7 +15,7 @@ Personal trading automation on **Zerodha Kite Connect**:
 | Phase | What | Status |
 |---|---|---|
 | 0 | Project skeleton, config, health endpoint | ✅ |
-| 1 | Telegram threshold alerts on a mock price feed | ⏳ next |
+| 1 | Telegram threshold alerts on a mock price feed | ✅ |
 | 2 | Live prices from Kite WebSocket + daily login flow | ⏳ |
 | 3 | JSON rule engine + paper trading + backtest | ⏳ |
 | 4 | Semi-auto: engine proposes a trade, I approve on Telegram | ⏳ |
@@ -65,8 +65,8 @@ Price feed ──ticks──►  Rule engine ──► Risk checks ──► Bro
 
 ### Alert flow
 1. `/alert INFY below 1400` → saved as an active alert.
-2. The price feed streams ticks; the checker fires only on a **cross** (previous tick above the level, current tick at or below it), so there is no spam on every tick.
-3. Telegram message: *"INFY crossed below ₹1400 (LTP 1398.6)"*. The alert is then disabled, or re-armed after a cooldown.
+2. The price feed streams ticks. An alert fires on the **first tick that meets its condition** (`above` means LTP ≥ level, `below` means LTP ≤ level). If the price already meets the condition when you set the alert, it fires on the next tick.
+3. Telegram message: *"🔔 NSE:INFY is below ₹1,400.00 / LTP ₹1,398.60"*. The alert is then marked triggered and never repeats, so there is no spam. Re-arming after a cooldown can come later.
 
 ### Strategy format (planned)
 ```json
@@ -95,10 +95,12 @@ Price feed ──ticks──►  Rule engine ──► Risk checks ──► Bro
 backend/
   app/
     main.py        FastAPI app
+    alerts_bot.py  Telegram alert bot (entry point)
     config.py      settings loaded from .env
     kite/          login, ticker, orders, GTT
-    engine/        rules, indicators, risk, paper broker
-    notify/        Telegram bot
+    engine/        alerts; later rules, indicators, risk, paper broker
+    feeds/         price feeds (mock now, Kite later)
+    notify/        Telegram client and command handling
   tests/
 ui/                dashboard (later)
 ```
@@ -113,6 +115,29 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload # http://localhost:8000/health
 pytest
 ```
+
+## Try the Telegram alert bot (mock prices)
+
+1. Put your bot token in `.env` as `TELEGRAM_BOT_TOKEN=...`.
+2. `cd backend && python -m app.alerts_bot`
+3. Send `/start` to the bot. Because `TELEGRAM_CHAT_ID` is empty, it replies with your chat id.
+4. Put `TELEGRAM_CHAT_ID=<that id>` in `.env` and restart. From then on, the bot answers only your chat.
+5. Test an alert:
+   ```
+   /setprice INFY 1390        # move the fake price
+   /alert INFY above 1400
+   /setprice INFY 1401        # 🔔 alert fires on Telegram
+   ```
+
+| Command | What it does |
+|---|---|
+| `/alert SYMBOL above\|below PRICE` | Create an alert (`RELIANCE` means `NSE:RELIANCE`; use `BSE:XYZ` for BSE) |
+| `/list` | Active alerts |
+| `/delete ID` | Remove an alert |
+| `/price SYMBOL` | Last price from the feed |
+| `/setprice SYMBOL PRICE` | Mock feed only: move the fake price to test triggers |
+
+Mock prices are made up, starting from a fixed per-symbol value and then a random walk. They are **not** market prices. Alerts are stored in `backend/data/algo.db` and survive restarts.
 
 ## Running costs (estimate)
 

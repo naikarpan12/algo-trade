@@ -15,7 +15,8 @@ Personal trading automation on **Zerodha Kite Connect**:
 | Phase | What | Status |
 |---|---|---|
 | 0 | Project skeleton, config, health endpoint | ✅ |
-| 1 | Telegram threshold alerts on a mock price feed | ⏳ next |
+| 1 | Telegram threshold alerts on a mock price feed | ✅ |
+| 1b | Separate market folders (India / US), market hours and holidays | ✅ |
 | 2 | Live prices from Kite WebSocket + daily login flow | ⏳ |
 | 3 | JSON rule engine + paper trading + backtest | ⏳ |
 | 4 | Semi-auto: engine proposes a trade, I approve on Telegram | ⏳ |
@@ -65,8 +66,8 @@ Price feed ──ticks──►  Rule engine ──► Risk checks ──► Bro
 
 ### Alert flow
 1. `/alert INFY below 1400` → saved as an active alert.
-2. The price feed streams ticks; the checker fires only on a **cross** (previous tick above the level, current tick at or below it), so there is no spam on every tick.
-3. Telegram message: *"INFY crossed below ₹1400 (LTP 1398.6)"*. The alert is then disabled, or re-armed after a cooldown.
+2. The price feed streams ticks. An alert fires on the **first tick that meets its condition** (`above` means LTP ≥ level, `below` means LTP ≤ level). If the price already meets the condition when you set the alert, it fires on the next tick.
+3. Telegram message: *"🔔 NSE:INFY is below ₹1,400.00 / LTP ₹1,398.60"*. The alert is then marked triggered and never repeats, so there is no spam. Re-arming after a cooldown can come later.
 
 ### Strategy format (planned)
 ```json
@@ -91,17 +92,32 @@ Price feed ──ticks──►  Rule engine ──► Risk checks ──► Bro
 
 ## Layout
 
+Markets are kept apart in **folders**, not branches: shared logic lives once in `core/`, and each market has its own folder. `india/` and `us/` never import each other (a test enforces this). Branches are only for features, merged into `main` by pull request.
+
 ```
 backend/
   app/
-    main.py        FastAPI app
-    config.py      settings loaded from .env
-    kite/          login, ticker, orders, GTT
-    engine/        rules, indicators, risk, paper broker
-    notify/        Telegram bot
-  tests/
-ui/                dashboard (later)
+    main.py          FastAPI app
+    alerts_bot.py    Telegram alert bot (entry point)
+    config.py        settings loaded from .env
+    core/            shared by every market
+      alerts.py        alert store + checker
+                       (later: rules, indicators, risk, time machine, paper broker)
+    markets/
+      __init__.py      registry: symbol → market (NSE:/BSE: → India, US: → US)
+      base.py          what a market defines: hours, holidays, currency, tick size
+      india/           🇮🇳 NSE/BSE 9:15–15:30 IST, NSE holidays, ₹
+                       (later: Kite login, live feed, orders, GTT)
+      us/              🇺🇸 NYSE/Nasdaq 9:30–16:00 ET, NYSE holidays, $ (optional experiments)
+    feeds/           mock price feed for testing (both markets)
+    notify/          Telegram client and command handling
+  tests/             mirrors app/: core/, markets/india/, markets/us/, notify/, feeds/
+ui/                  dashboard (later)
 ```
+
+**Symbols:** `RELIANCE` uses the default market (`MARKET=india` in `.env`), giving `NSE:RELIANCE`. You can also write `BSE:RELIANCE` or `US:TSLA` explicitly. Prices show in the market's currency (₹ or $).
+
+**Holidays:** NSE 2026 and NYSE 2026–2027 are loaded. Add each new year's list from the exchange circular in `markets/<market>/__init__.py`. For a year without a list, only weekends count as closed, and `/clock` says so.
 
 ## Running locally
 
@@ -113,6 +129,30 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload # http://localhost:8000/health
 pytest
 ```
+
+## Try the Telegram alert bot (mock prices)
+
+1. Put your bot token in `.env` as `TELEGRAM_BOT_TOKEN=...`.
+2. `cd backend && python -m app.alerts_bot`
+3. Send `/start` to the bot. Because `TELEGRAM_CHAT_ID` is empty, it replies with your chat id.
+4. Put `TELEGRAM_CHAT_ID=<that id>` in `.env` and restart. From then on, the bot answers only your chat.
+5. Test an alert:
+   ```
+   /setprice INFY 1390        # move the fake price
+   /alert INFY above 1400
+   /setprice INFY 1401        # 🔔 alert fires on Telegram
+   ```
+
+| Command | What it does |
+|---|---|
+| `/alert SYMBOL above\|below PRICE` | Create an alert (`RELIANCE` means `NSE:RELIANCE`; also `BSE:XYZ`, `US:TSLA`) |
+| `/list` | Active alerts |
+| `/delete ID` | Remove an alert |
+| `/price SYMBOL` | Last price from the feed |
+| `/clock` | Whether NSE/BSE and NYSE/Nasdaq are open right now |
+| `/setprice SYMBOL PRICE` | Mock feed only: move the fake price to test triggers |
+
+Mock prices are made up, starting from a fixed per-symbol value and then a random walk. They are **not** market prices. Alerts are stored in `backend/data/algo.db` and survive restarts.
 
 ## Running costs (estimate)
 

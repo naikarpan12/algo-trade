@@ -10,6 +10,7 @@ def health() -> dict:
     settings = get_settings()
     return {
         "status": "ok",
+        "market": settings.market,
         "trading_mode": settings.trading_mode,
         "price_feed": settings.price_feed,
     }

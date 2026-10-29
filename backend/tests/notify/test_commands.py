@@ -1,11 +1,12 @@
-from app.engine.alerts import AlertStore
+from app.core.alerts import AlertStore
 from app.feeds.mock import MockFeed
+from app.markets import INDIA, US
 from app.notify.commands import HELP, CommandHandler
 
 
-def make_handler():
+def make_handler(market=INDIA):
     store = AlertStore()
-    return CommandHandler(store, MockFeed(seed=1)), store
+    return CommandHandler(store, MockFeed(seed=1), market), store
 
 
 def test_alert_command_creates_alert_and_subscribes():
@@ -50,3 +51,31 @@ def test_help_and_unknown():
     handler, _ = make_handler()
     assert handler.handle("/start") == HELP
     assert handler.handle("/foo").startswith("Unknown command.")
+
+
+def test_us_symbols_use_dollars_and_cent_ticks():
+    handler, store = make_handler()
+    assert handler.handle("/alert us:tsla below 350.5").startswith("Alert set: #1 US:TSLA below $350.50")
+    assert handler.handle("/setprice US:TSLA 351.234") == "Mock price for US:TSLA set to $351.23"
+
+
+def test_default_market_us():
+    handler, store = make_handler(US)
+    handler.handle("/alert TSLA above 400")
+    assert store.active()[0].symbol == "US:TSLA"
+
+
+def test_bse_symbol_is_india():
+    handler, _ = make_handler()
+    assert handler.handle("/setprice bse:reliance 2999.98") == "Mock price for BSE:RELIANCE set to ₹3,000.00"
+
+
+def test_unknown_exchange_is_explained():
+    handler, store = make_handler()
+    assert handler.handle("/alert LSE:BP above 5").startswith("Unknown exchange 'LSE'")
+    assert store.active() == []
+
+
+def test_clock_lists_both_markets():
+    reply = make_handler()[0].handle("/clock")
+    assert reply.startswith("NSE/BSE: ") and "\nNYSE/Nasdaq: " in reply

@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from app.markets import market_for_symbol
+
 Condition = Literal["above", "below"]
 CONDITIONS: tuple[Condition, ...] = ("above", "below")
 
@@ -22,17 +24,11 @@ class Alert:
     triggered_price: float | None = None
 
     def describe(self) -> str:
-        return f"#{self.id} {self.symbol} {self.condition} ₹{self.level:,.2f}"
+        return f"#{self.id} {self.symbol} {self.condition} {market_for_symbol(self.symbol).format_price(self.level)}"
 
 
 def is_met(condition: Condition, level: float, price: float) -> bool:
     return price >= level if condition == "above" else price <= level
-
-
-def normalize_symbol(symbol: str) -> str:
-    """'reliance' -> 'NSE:RELIANCE'; an explicit exchange prefix is kept."""
-    symbol = symbol.strip().upper()
-    return symbol if ":" in symbol else f"NSE:{symbol}"
 
 
 def sqlite_path(database_url: str) -> str:
@@ -70,11 +66,12 @@ class AlertStore:
         self._db.commit()
 
     def add(self, symbol: str, condition: Condition, level: float) -> Alert:
+        """`symbol` must already be normalized, e.g. 'NSE:RELIANCE' (see app.markets.normalize_symbol)."""
         if condition not in CONDITIONS:
             raise ValueError(f"condition must be one of {CONDITIONS}")
         cursor = self._db.execute(
             "INSERT INTO alerts (symbol, condition, level, created_at) VALUES (?, ?, ?, ?)",
-            (normalize_symbol(symbol), condition, level, _now()),
+            (symbol, condition, level, _now()),
         )
         self._db.commit()
         return self.get(cursor.lastrowid)

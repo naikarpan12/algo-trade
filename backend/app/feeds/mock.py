@@ -5,11 +5,15 @@ import random
 import zlib
 from collections.abc import AsyncIterator, Iterable
 
-TICK_SIZE = 0.05
+from app.markets import market_for_symbol
 
 
-def round_to_tick(price: float) -> float:
-    return round(round(price / TICK_SIZE) * TICK_SIZE, 2)
+def round_to_tick(price: float, tick: float) -> float:
+    return round(round(price / tick) * tick, 2)
+
+
+def _tick(symbol: str) -> float:
+    return market_for_symbol(symbol).tick_size
 
 
 class MockFeed:
@@ -22,7 +26,7 @@ class MockFeed:
     @staticmethod
     def _base_price(symbol: str) -> float:
         # Stable per symbol so restarts start from the same made-up price.
-        return round_to_tick(100 + zlib.crc32(symbol.encode()) % 2900)
+        return round_to_tick(100 + zlib.crc32(symbol.encode()) % 2900, _tick(symbol))
 
     def subscribe(self, symbols: Iterable[str]) -> None:
         for symbol in symbols:
@@ -32,12 +36,13 @@ class MockFeed:
         return self._prices.get(symbol)
 
     def set_price(self, symbol: str, price: float) -> None:
-        self._prices[symbol] = round_to_tick(price)
+        self._prices[symbol] = round_to_tick(price, _tick(symbol))
 
     def step(self) -> list[tuple[str, float]]:
         for symbol, price in self._prices.items():
             move = price * self._rng.gauss(0, self.volatility)
-            self._prices[symbol] = max(TICK_SIZE, round_to_tick(price + move))
+            tick = _tick(symbol)
+            self._prices[symbol] = max(tick, round_to_tick(price + move, tick))
         return list(self._prices.items())
 
     async def ticks(self) -> AsyncIterator[tuple[str, float]]:

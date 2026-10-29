@@ -2,8 +2,9 @@ from app.feeds.mock import MockFeed, round_to_tick
 
 
 def test_round_to_tick():
-    assert round_to_tick(100.02) == 100.0
-    assert round_to_tick(100.03) == 100.05
+    assert round_to_tick(100.02, 0.05) == 100.0
+    assert round_to_tick(100.03, 0.05) == 100.05
+    assert round_to_tick(100.034, 0.01) == 100.03
 
 
 def test_base_price_is_stable_per_symbol():

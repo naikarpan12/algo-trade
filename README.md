@@ -16,6 +16,7 @@ Personal trading automation on **Zerodha Kite Connect**:
 |---|---|---|
 | 0 | Project skeleton, config, health endpoint | ✅ |
 | 1 | Telegram threshold alerts on a mock price feed | ✅ |
+| 1b | Separate market folders (India / US), market hours and holidays | ✅ |
 | 2 | Live prices from Kite WebSocket + daily login flow | ⏳ |
 | 3 | JSON rule engine + paper trading + backtest | ⏳ |
 | 4 | Semi-auto: engine proposes a trade, I approve on Telegram | ⏳ |
@@ -91,19 +92,32 @@ Price feed ──ticks──►  Rule engine ──► Risk checks ──► Bro
 
 ## Layout
 
+Markets are kept apart in **folders**, not branches: shared logic lives once in `core/`, and each market has its own folder. `india/` and `us/` never import each other (a test enforces this). Branches are only for features, merged into `main` by pull request.
+
 ```
 backend/
   app/
-    main.py        FastAPI app
-    alerts_bot.py  Telegram alert bot (entry point)
-    config.py      settings loaded from .env
-    kite/          login, ticker, orders, GTT
-    engine/        alerts; later rules, indicators, risk, paper broker
-    feeds/         price feeds (mock now, Kite later)
-    notify/        Telegram client and command handling
-  tests/
-ui/                dashboard (later)
+    main.py          FastAPI app
+    alerts_bot.py    Telegram alert bot (entry point)
+    config.py        settings loaded from .env
+    core/            shared by every market
+      alerts.py        alert store + checker
+                       (later: rules, indicators, risk, time machine, paper broker)
+    markets/
+      __init__.py      registry: symbol → market (NSE:/BSE: → India, US: → US)
+      base.py          what a market defines: hours, holidays, currency, tick size
+      india/           🇮🇳 NSE/BSE 9:15–15:30 IST, NSE holidays, ₹
+                       (later: Kite login, live feed, orders, GTT)
+      us/              🇺🇸 NYSE/Nasdaq 9:30–16:00 ET, NYSE holidays, $ (optional experiments)
+    feeds/           mock price feed for testing (both markets)
+    notify/          Telegram client and command handling
+  tests/             mirrors app/: core/, markets/india/, markets/us/, notify/, feeds/
+ui/                  dashboard (later)
 ```
+
+**Symbols:** `RELIANCE` uses the default market (`MARKET=india` in `.env`), giving `NSE:RELIANCE`. You can also write `BSE:RELIANCE` or `US:TSLA` explicitly. Prices show in the market's currency (₹ or $).
+
+**Holidays:** NSE 2026 and NYSE 2026–2027 are loaded. Add each new year's list from the exchange circular in `markets/<market>/__init__.py`. For a year without a list, only weekends count as closed, and `/clock` says so.
 
 ## Running locally
 
@@ -131,10 +145,11 @@ pytest
 
 | Command | What it does |
 |---|---|
-| `/alert SYMBOL above\|below PRICE` | Create an alert (`RELIANCE` means `NSE:RELIANCE`; use `BSE:XYZ` for BSE) |
+| `/alert SYMBOL above\|below PRICE` | Create an alert (`RELIANCE` means `NSE:RELIANCE`; also `BSE:XYZ`, `US:TSLA`) |
 | `/list` | Active alerts |
 | `/delete ID` | Remove an alert |
 | `/price SYMBOL` | Last price from the feed |
+| `/clock` | Whether NSE/BSE and NYSE/Nasdaq are open right now |
 | `/setprice SYMBOL PRICE` | Mock feed only: move the fake price to test triggers |
 
 Mock prices are made up, starting from a fixed per-symbol value and then a random walk. They are **not** market prices. Alerts are stored in `backend/data/algo.db` and survive restarts.

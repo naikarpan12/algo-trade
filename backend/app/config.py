@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # Default market for symbols typed without an exchange ("RELIANCE" -> NSE:RELIANCE)
+    market: Literal["india", "us"] = "india"
     trading_mode: Literal["paper", "live"] = "paper"
     price_feed: Literal["mock", "kite"] = "mock"
 

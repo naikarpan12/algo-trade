@@ -7,8 +7,9 @@ import asyncio
 import logging
 
 from app.config import get_settings
-from app.engine.alerts import Alert, AlertChecker, AlertStore, sqlite_path
+from app.core.alerts import Alert, AlertChecker, AlertStore, sqlite_path
 from app.feeds.mock import MockFeed
+from app.markets import get_market, market_for_symbol
 from app.notify.commands import CommandHandler
 from app.notify.telegram import TelegramClient
 
@@ -36,9 +37,10 @@ def configure_logging(secret: str) -> None:
 
 
 def format_trigger(alert: Alert) -> str:
+    market = market_for_symbol(alert.symbol)
     return (
-        f"🔔 {alert.symbol} is {alert.condition} ₹{alert.level:,.2f}\n"
-        f"LTP ₹{alert.triggered_price:,.2f} (alert #{alert.id})"
+        f"🔔 {alert.symbol} is {alert.condition} {market.format_price(alert.level)}\n"
+        f"LTP {market.format_price(alert.triggered_price)} (alert #{alert.id})"
     )
 
 
@@ -92,12 +94,18 @@ async def main() -> None:
     feed = MockFeed()
     feed.subscribe(store.active_symbols())
     telegram = TelegramClient(settings.telegram_bot_token)
-    handler = CommandHandler(store, feed)
+    market = get_market(settings.market)
+    handler = CommandHandler(store, feed, market)
     chat_id = settings.telegram_chat_id
 
     if not chat_id:
         log.warning("TELEGRAM_CHAT_ID not set: send /start to the bot to get your chat id")
-    log.info("Alert bot running (feed=%s, %d active alerts)", settings.price_feed, len(store.active()))
+    log.info(
+        "Alert bot running (market=%s, feed=%s, %d active alerts)",
+        market.code,
+        settings.price_feed,
+        len(store.active()),
+    )
     try:
         await asyncio.gather(
             poll_commands(telegram, handler, chat_id),

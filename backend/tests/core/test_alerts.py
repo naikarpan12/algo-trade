@@ -1,6 +1,6 @@
 import pytest
 
-from app.engine.alerts import AlertChecker, AlertStore, is_met, normalize_symbol, sqlite_path
+from app.core.alerts import AlertChecker, AlertStore, is_met, sqlite_path
 
 
 def test_is_met():
@@ -11,14 +11,9 @@ def test_is_met():
     assert not is_met("below", 100, 100.05)
 
 
-def test_normalize_symbol():
-    assert normalize_symbol(" reliance ") == "NSE:RELIANCE"
-    assert normalize_symbol("bse:tcs") == "BSE:TCS"
-
-
 def test_store_add_list_delete():
     store = AlertStore()
-    alert = store.add("infy", "below", 1400)
+    alert = store.add("NSE:INFY", "below", 1400)
     assert alert.symbol == "NSE:INFY" and alert.status == "active"
     assert [a.id for a in store.active()] == [alert.id]
     assert store.active_symbols() == {"NSE:INFY"}
@@ -29,19 +24,19 @@ def test_store_add_list_delete():
 
 def test_store_rejects_unknown_condition():
     with pytest.raises(ValueError):
-        AlertStore().add("INFY", "crosses", 1400)
+        AlertStore().add("NSE:INFY", "crosses", 1400)
 
 
 def test_store_persists_to_file(tmp_path):
     path = sqlite_path(f"sqlite:///{tmp_path}/nested/algo.db")
-    AlertStore(path).add("TCS", "above", 4000)
+    AlertStore(path).add("NSE:TCS", "above", 4000)
     assert [a.symbol for a in AlertStore(path).active()] == ["NSE:TCS"]
 
 
 def test_checker_fires_once_when_condition_met():
     store = AlertStore()
-    above = store.add("RELIANCE", "above", 3000)
-    below = store.add("RELIANCE", "below", 2900)
+    above = store.add("NSE:RELIANCE", "above", 3000)
+    below = store.add("NSE:RELIANCE", "below", 2900)
     checker = AlertChecker(store)
 
     assert checker.on_tick("NSE:RELIANCE", 2950) == []
@@ -56,5 +51,11 @@ def test_checker_fires_once_when_condition_met():
 
 def test_checker_ignores_other_symbols():
     store = AlertStore()
-    store.add("INFY", "above", 1)
+    store.add("NSE:INFY", "above", 1)
     assert AlertChecker(store).on_tick("NSE:TCS", 5000) == []
+
+
+def test_describe_uses_the_market_currency():
+    store = AlertStore()
+    assert store.add("NSE:INFY", "above", 1400).describe() == "#1 NSE:INFY above ₹1,400.00"
+    assert store.add("US:TSLA", "below", 350.5).describe() == "#2 US:TSLA below $350.50"

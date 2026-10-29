@@ -3,8 +3,9 @@ import logging
 import sys
 
 from app.alerts_bot import RedactingFormatter, poll_commands, watch_prices
-from app.engine.alerts import AlertChecker, AlertStore
+from app.core.alerts import AlertChecker, AlertStore
 from app.feeds.mock import MockFeed
+from app.markets import INDIA
 from app.notify.commands import CommandHandler
 
 
@@ -35,7 +36,7 @@ async def run_briefly(coro, seconds=0.2):
 
 def test_unconfigured_bot_replies_with_chat_id():
     telegram = FakeTelegram([message(1, 555, "/start")])
-    handler = CommandHandler(AlertStore(), MockFeed())
+    handler = CommandHandler(AlertStore(), MockFeed(), INDIA)
     asyncio.run(run_briefly(poll_commands(telegram, handler, chat_id="")))
     assert telegram.sent[0][0] == "555"
     assert "TELEGRAM_CHAT_ID=555" in telegram.sent[0][1]
@@ -44,14 +45,14 @@ def test_unconfigured_bot_replies_with_chat_id():
 def test_ignores_other_chats():
     telegram = FakeTelegram([message(1, 999, "/alert INFY above 1"), message(2, 555, "/list")])
     store = AlertStore()
-    asyncio.run(run_briefly(poll_commands(telegram, CommandHandler(store, MockFeed()), chat_id="555")))
+    asyncio.run(run_briefly(poll_commands(telegram, CommandHandler(store, MockFeed(), INDIA), chat_id="555")))
     assert store.active() == []
     assert telegram.sent == [("555", "No active alerts.")]
 
 
 def test_end_to_end_alert_triggers_telegram_message():
     store, feed = AlertStore(), MockFeed(interval=0.01, volatility=0)
-    handler = CommandHandler(store, feed)
+    handler = CommandHandler(store, feed, INDIA)
     telegram = FakeTelegram(
         [message(1, 555, "/setprice INFY 1390"), message(2, 555, "/alert INFY above 1400")]
     )
